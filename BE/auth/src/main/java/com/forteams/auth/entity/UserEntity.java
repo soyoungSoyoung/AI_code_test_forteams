@@ -20,12 +20,18 @@ public class UserEntity {
     @Column(name = "user_id")
     private Long userId;
 
-    @OneToOne
-    @JoinColumn(name = "ms_uuid", referencedColumnName = "ms_uuid")
-    private MsUserEntity msUserEntity;
+    // @OneToOne
+    // @JoinColumn(name = "ms_uuid", referencedColumnName = "ms_uuid")
+    // private MsUserEntity msUserEntity;
 
+    // @Column(name = "user_nickname")
+    // private String userNickname; //추후에 인디언식
+
+    @OneToOne
+    @JoinColumn(name = "ms_uuid")
+    private MsUserEntity msUserEntity;
     @Column(name = "user_nickname")
-    private String userNickname; //추후에 인디언식
+    private String userNickname;
 
     @Column(name="user_dept")
     private String userDept; //부서
