@@ -15,16 +15,20 @@ import java.util.UUID;
 @Entity
 @Table(name = "ms_users")
 public class MsUserEntity {
+    // @Id
+    // @GeneratedValue(strategy = GenerationType.IDENTITY)
+    // @Column(name = "ms_pk")
+    // private Long msPk;
+
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "ms_pk")
-    private Long msPk;
+    @Column(name = "ms_uuid")
+    private String msUuid = UUID.randomUUID().toString(); //꾸꾸) 원래 PK에 FK를 연결하는 것이 이상적이다. 문자 타입이래도 uuid를 pk로 쓰는 게 낫다
 
     @Column(name = "microsoft_id")
     private String microsoftId; //ms에 로그인하는 email -> 이걸 확인해서 없으면 회원가입 진행
 
-    @Column(name = "ms_uuid", unique = true)
-    private String msUuid = UUID.randomUUID().toString(); // UUID를 String으로 저장
+    // @Column(name = "ms_uuid", unique = true)
+    // private String msUuid = UUID.randomUUID().toString(); // UUID를 String으로 저장
 
     @Column(name = "user_name")
     private String userName; //이름 name으로 가져오기
