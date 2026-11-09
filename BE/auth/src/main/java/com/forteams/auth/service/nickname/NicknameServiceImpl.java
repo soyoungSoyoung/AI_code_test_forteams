@@ -18,20 +18,42 @@ public class NicknameServiceImpl implements NicknameService {
     private final StringRedisTemplate redisTemplate;
     private static final String NICKNAME_SET_KEY = "available_nicknames";
 
+    /**
+     [닉네임 되돌리기]
+     [2단계 수정] 시작 시 Redis 풀과 DB를 항상 전체 대조
+
+     왜 이걸 해야 하는가:
+      - [1단계] push-back은 "DB 저장 실패"는 막지만 "JVM 크래시"는 못 막음.
+        SPOP은 성공한 뒤 프로세스가 죽으면 catch가 실행되지 않아, 닉네임이 유실됨.
+      - Redis는 재시작 후에도 이전 데이터가 유지됨(지속성이 있음).
+        즉 유실된 닉네임은 재시작 후에도 풀에 돌아오지 않음.
+      - 기존 코드는 size==0(Set이 완전히 비어있을 때)에만 채웠으므로,
+        일부만 유실된 경우엔 영구 복구가 되지 않음.
+     
+     어떻게 바꿔야 하는가:
+      - size==0 조건을 제거, 매 시작 시 DB의 미할당 닉네임 전체를 SADD해야 함.
+      - SADD는 멱등(idempotent)이라 풀에 이미 있는 닉네임을 다시 넣어도 해롭지 않음.
+        따라서 "빠진 것만 골라 넣는" 대조 로직 없이 무조건 전체 SADD해도 효과는 같음.
+
+     한계:
+      - 이전 세션에서 유실된 닉네임만 복귀됨.
+        현재 세션 중 발생한 누수는 [1단계] push-back이 담당.
+    */
     @PostConstruct
     public void init() {
         SetOperations<String, String> setOps = redisTemplate.opsForSet();
-        if (setOps.size(NICKNAME_SET_KEY) == 0) {
+        // if (setOps.size(NICKNAME_SET_KEY) == 0) { //비어있든 아니든 수행
             List<NicknameEntity> nicknames = nicknameRepository.findAll();
             for (NicknameEntity nickname : nicknames) {
                 if (!nickname.isAssigned()) {
                     setOps.add(NICKNAME_SET_KEY, nickname.getNickname());
                 }
             }
-        }
+        // }
     }
 
     /**
+     [닉네임 되돌리기]
          [1단계 수정] 닉네임 부여 시 push-back 보상(원천 차단)
 
          왜 이걸 해야 하는가:
