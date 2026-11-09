@@ -31,6 +31,26 @@ public class NicknameServiceImpl implements NicknameService {
         }
     }
 
+    /**
+         [1단계 수정] 닉네임 부여 시 push-back 보상(원천 차단)
+
+         왜 이걸 해야 하는가:
+          - SPOP(Redis에서 닉네임 꺼내기)은 "비가역"임. 일단 꺼내면 풀에 다시 돌아가지 않음.
+          - 반면 DB 저장(sava)은 트랜잭션에 속하므로 실패하면 롤백됨.
+          - 이 둘 사이에 틈: SPOP은 성공했는데 DB save가 실패하면,
+            그 닉네임은 "Redis에도 없고, DB에도 미할당"인 유령 상태가 되어 영구 누수됨.
+          - Spring @Transactional은 DB 트랜잭션만 묶고 Redis 연산은 보호하지 않음.
+
+         어떻게 바꿔야 하나:
+          - DB 저장 구간(findById/save)을 try-catch로 감쌈.
+          - 실패 시 catch에서 SADD로 해당 닉네임을 Redis 풀에 되돌려놓음(보상).
+          - 그리고 예외를 다시 던짐(rethrow). 이렇게 하면 트랜잭션이 롤백되어
+            DB의 assigned=true 변경도 되돌아감. 즉 DB는 미할당으로, Redis는 풀로 복귀함.
+          - 보상(SADD)은 DB 트랜잭션 밖이라 rethrow/롤백에도 그대로 유지됨.
+
+         한계:
+          - JVM 크래시(프로세스 사망)는 catch가 못 막음. 그 구멍은 [2단계] init() 전체 대조가 메움.
+    */
     @Transactional
     public String assignNickname() {
         String nickname = redisTemplate.opsForSet().pop(NICKNAME_SET_KEY);
@@ -39,18 +59,17 @@ public class NicknameServiceImpl implements NicknameService {
         //     nick.setAssigned(true);
         //     nicknameRepository.save(nick);
         // }
-        /*닉네임 누수를 막는 로직 추가 1. 
-          (Redis에서 뽑았던 닉네임을, 직원에게 배정 못하게 되면, set에 다시 돌려놓는 로직 필요)
-          (Transaction은 일반 DB에만 적용되고, Redis엔 적용이 안 돼서 다시 넣어주는 액션 필요)
-          (push-back이라고 함)
-        */
+        
         if(nickname != null) {
             try {
                 NicknameEntity nick = nicknameRepository.findById(nickname).orElseThrow();
                 nick.setAssigned(true);
                 nicknameRepository.save(nick);
             } catch (Exception e) {
+                // DB저장 실패 -> Redis에서 이미 꺼낸 닉네임을 풀에 되돌려놓기
+                // (SADD는 멱등이라 중복 추가 걱정 없음)
                 redisTemplate.opsForSet().add(NICKNAME_SET_KEY, nickname); //보상: 되돌려놓기
+                // 예외 rethrow: 트랜잭션 롤백으로 DB 변경도 되돌림.
                 throw e;
             }
         }
