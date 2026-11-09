@@ -50,7 +50,27 @@ public class AuthServiceImpl implements AuthService {
             newUserEntity.setMsUserEntity(msUserEntity);
             newUserEntity.setUserRole("ROLE_USER");
             newUserEntity.setUserDept(userDept);
-            newUserEntity.setUserNickname(nicknameService.assignNickname()); //redis에서 꺼내오기
+            // newUserEntity.setUserNickname(nicknameService.assignNickname()); //redis에서 꺼내오기
+            /**
+             [닉네임 되돌리기] -> 이 부분은 프로젝트의 특성상, 고갈될 일이 없을 것이라 판단하여 구현해두지 않았으나 안정성을 위해 수정함
+             [3단계 수정] 닉네임 고갈(null) 가드
+
+             왜 이걸 해야 하는가:
+              - assignNickname()은 Redis 풀이 비어있으면 null을 반환.
+              - 기존 코드는 그 null을 그대로 setUserNickname(null)로 저장했음.
+                -> 닉네임 없는 회원이 DB에 생성되고, 하류(챗봇 등)에서 NPE/이상 동작 일어날 수 있음.
+
+             어떻게 바꿔야 하나:
+              - null을 확인하여 즉시 예외를 던짐.
+                트랜잭션이 롤백되어 UserEntity 저장 자체가 취소됨(반쪽 상태 방지).
+              - 호출 측(AuthController)은 이 예외를 503으로 변환해 (ToDo: 503반환 관련 코드 수정)
+                프론트에 "닉네임이 모두 소진됨"을 알릴 수 있음.
+            */
+            String nickname = nicknameService.assignNickname();
+            if(nickname == null) {
+                throw new IllegalStateException("사용 가능한 닉네임이 없습니다. 관리자에게 문의하세요.");
+            }
+            newUserEntity.setUserNickname(nickname);
 
             userRepository.save(newUserEntity);
 
